@@ -99,6 +99,23 @@ jobs:
         run: |
           pytest -v
 
+  frontend-test:
+    name: Test frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies and test
+        run: |
+          cd frontend
+          npm install
+          npm test
 
   # =========================================================
   # Build and Push Docker Images
@@ -108,9 +125,8 @@ jobs:
     runs-on: ubuntu-latest
 
     # All backend tests must pass before this job starts
-    needs:
-      - backend-test
-
+    needs: [backend-test, frontend-test]
+    
     # Build and push when code is pushed to main or manually triggered
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
 
