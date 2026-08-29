@@ -116,6 +116,12 @@ jobs:
           cd frontend
           npm install
           npm test
+        env:
+          VITE_USER_SERVICE_URL: http://localhost:8000
+          VITE_STUDENT_SERVICE_URL: http://localhost:8000
+          VITE_LECTURER_SERVICE_URL: http://localhost:8000
+          VITE_COURSE_SERVICE_URL: http://localhost:8000
+          VITE_ENROLLMENT_SERVICE_URL: http://localhost:8000
 
   # =========================================================
   # Build and Push Docker Images
@@ -126,7 +132,7 @@ jobs:
 
     # All backend tests must pass before this job starts
     needs: [backend-test, frontend-test]
-    
+
     # Build and push when code is pushed to main or manually triggered
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
 
