@@ -76,7 +76,7 @@ jobs:
       AZURE_STORAGE_CONTAINER_NAME: ""
 
     steps:
-
+      #actions
       - name: Checkout repository
         uses: actions/checkout@v4
 
