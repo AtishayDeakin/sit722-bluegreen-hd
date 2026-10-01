@@ -197,3 +197,8 @@ cython_debug/
 .cursorindexingignore
 
 node_modules/
+# Terraform (state is kept outside the repo, see infra/platform/README)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan

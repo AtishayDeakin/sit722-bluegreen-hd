@@ -5,10 +5,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.db import Base, engine
+from app.observability import setup_observability
 from app.models import User, UserRole
 from app.routers import auth, users
 from app.security import hash_password
@@ -36,7 +37,10 @@ def initialise_database() -> None:
 
             return
 
-        except OperationalError:
+        # Blue and green pods share one database, so two pods can race
+        # to create the same tables. Treat that like a connection error
+        # and retry instead of crashing the pod.
+        except (OperationalError, IntegrityError, ProgrammingError):
             logger.warning(
                 "Database connection failed. Attempt %s of %s.",
                 attempt,
@@ -90,7 +94,16 @@ def create_default_admin() -> None:
         )
 
         db.add(admin)
-        db.commit()
+
+        try:
+            db.commit()
+        except IntegrityError:
+            # Another replica created the admin at the same moment.
+            db.rollback()
+            logger.info(
+                "Default administrator account was created by another replica."
+            )
+            return
 
         logger.info(
             "Default administrator account created."
@@ -118,6 +131,7 @@ app = FastAPI(
 
 app.include_router(auth.router)
 app.include_router(users.router)
+setup_observability(app, engine, "user-service")
 
 
 @app.get(

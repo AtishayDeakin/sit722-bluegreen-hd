@@ -3,9 +3,10 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 
 from app.db import Base, engine
+from app.observability import setup_observability
 from app.routers import courses
 
 
@@ -31,7 +32,10 @@ def initialise_database() -> None:
 
             return
 
-        except OperationalError:
+        # Blue and green pods share one database, so two pods can race
+        # to create the same tables. Treat that like a connection error
+        # and retry instead of crashing the pod.
+        except (OperationalError, IntegrityError, ProgrammingError):
             logger.warning(
                 "Database connection failed. Attempt %s of %s.",
                 attempt,
@@ -65,6 +69,7 @@ app = FastAPI(
 
 
 app.include_router(courses.router)
+setup_observability(app, engine, "course-service")
 
 
 @app.get("/", tags=["Health"])
