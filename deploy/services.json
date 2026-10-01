@@ -1,0 +1,29 @@
+{
+  "_comment": "Single source of truth for the application's services. Read by Terraform (infra/platform) and by the deployment controller (deploy/bluegreen.py).",
+  "frontend": {
+    "image": "koalatech-frontend",
+    "port": 80
+  },
+  "backends": {
+    "user-service": {
+      "image": "koalatech-user-service",
+      "database": "users"
+    },
+    "student-service": {
+      "image": "koalatech-student-service",
+      "database": "students"
+    },
+    "lecturer-service": {
+      "image": "koalatech-lecturer-service",
+      "database": "lecturers"
+    },
+    "course-service": {
+      "image": "koalatech-course-service",
+      "database": "courses"
+    },
+    "enrollment-service": {
+      "image": "koalatech-enrollment-service",
+      "database": "enrollments"
+    }
+  }
+}
