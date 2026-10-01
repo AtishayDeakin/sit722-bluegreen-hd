@@ -1,0 +1,95 @@
+# kube-prometheus-stack values, trimmed for a laptop cluster (Docker Desktop).
+# Rendered by Terraform (monitoring.tf); $${...} are Terraform variables.
+
+fullnameOverride: kps
+
+# Not needed here: alert routing, node-level metrics, and control-plane
+# components that Docker Desktop does not expose (would show as "down").
+alertmanager:
+  enabled: false
+nodeExporter:
+  enabled: false
+defaultRules:
+  create: false
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+# Export the app/color/version pod labels so Grafana can show how many pods of
+# each colour are ready and which version each colour runs.
+kube-state-metrics:
+  metricLabelsAllowlist:
+    - pods=[app,color,version]
+
+prometheus:
+  # ClusterIP on purpose: the chart's Service also carries the config
+  # reloader on port 8080, which would clash with the production port if it
+  # were published on localhost. The pipeline reaches Prometheus through the
+  # Kubernetes API server proxy instead.
+  service:
+    type: ClusterIP
+  prometheusSpec:
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    retention: 2d
+    resources:
+      requests:
+        cpu: 100m
+        memory: 400Mi
+      limits:
+        memory: 1Gi
+    # Scrape every KoalaTech pod that opts in with prometheus.io/* annotations
+    # and copy its colour/version labels onto the metrics. A short interval
+    # lets the post-swap health gate react within seconds.
+    additionalScrapeConfigs:
+      - job_name: koalatech-pods
+        scrape_interval: 5s
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - ${app_namespace}
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_phase]
+            action: keep
+            regex: Running
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            regex: (.+)
+            target_label: __metrics_path__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+          - source_labels: [__meta_kubernetes_pod_label_color]
+            target_label: color
+          - source_labels: [__meta_kubernetes_pod_label_version]
+            target_label: version
+
+grafana:
+  defaultDashboardsEnabled: false
+  adminPassword: "${grafana_admin_password}"
+  service:
+    type: LoadBalancer
+    port: ${grafana_port}
+  grafana.ini:
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
+    analytics:
+      check_for_updates: false
