@@ -160,7 +160,7 @@ deploy/
   bluegreen.py                 release controller: plan, deploy, swap, observe, rollback...
   services.json                service catalogue shared by Terraform and the controller
   k8s/*.yaml.tpl               per-colour Deployment templates
-  tests/test_bluegreen.py      26 unit tests for the controller (fake kubectl)
+  tests/test_bluegreen.py      30 unit tests for the controller (fake kubectl)
 infra/
   platform/                    Terraform for the local Kubernetes platform
     modules/postgres/          reusable module: one PostgreSQL StatefulSet + Service
@@ -392,7 +392,7 @@ a real defect, which is the point.
 | Level | What | Where it runs |
 |---|---|---|
 | Unit | 98 backend tests (original API tests + observability hooks), 34 frontend tests | GitHub-hosted, every push and PR |
-| Unit | 26 controller tests: gate decisions, rendering, swap/rollback safety | GitHub-hosted |
+| Unit | 30 controller tests: gate decisions, rendering, swap/rollback safety, switch confirmation | GitHub-hosted |
 | Static | `terraform fmt`/`validate`, kubeconform (strict) on rendered manifests | GitHub-hosted |
 | Smoke | 13 checks on the staged colour through nginx, including colour isolation and a DB write round trip | Self-hosted, before the switch |
 | Load | k6 at 15 iterations/s during the switch and observation | Self-hosted |
