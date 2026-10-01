@@ -57,7 +57,9 @@ function record(response) {
 }
 
 export function setup() {
-  for (let attempt = 1; attempt <= 10; attempt++) {
+  // Retry for up to 2 minutes: on the very first release production has no
+  // pods until the pipeline switches traffic, so login only works after that.
+  for (let attempt = 1; attempt <= 60; attempt++) {
     const response = http.post(`${BASE_URL}/api/users/auth/login`, {
       username: __ENV.ADMIN_USERNAME || "admin",
       password: __ENV.ADMIN_PASSWORD,
