@@ -1,4 +1,8 @@
-FROM node:22-alpine AS build
+# ---- Build stage ----------------------------------------------------------
+# The React build output is plain static files, so this stage always runs on
+# the build machine's own CPU ($BUILDPLATFORM). Only the small nginx stage is
+# built per target architecture, which keeps multi-arch builds fast.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 
 WORKDIR /app
 
@@ -22,9 +26,16 @@ ENV VITE_ENROLLMENT_SERVICE_URL=${VITE_ENROLLMENT_SERVICE_URL}
 
 RUN npm run build
 
+# ---- Runtime stage --------------------------------------------------------
 FROM nginx:1.27-alpine
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Defaults suit docker compose. Kubernetes overrides them per colour.
+ENV BACKEND_SUFFIX="" \
+    APP_COLOR="local" \
+    APP_VERSION="dev"
+
+# The nginx image renders /etc/nginx/templates/*.template into conf.d at start.
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
 COPY --from=build /app/dist /usr/share/nginx/html
 

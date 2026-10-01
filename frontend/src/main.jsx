@@ -14,6 +14,7 @@ import {
 import App from "./App";
 import theme from "./theme";
 import ErrorBoundary from "./components/ErrorBoundary";
+import ReleaseBadge from "./components/ReleaseBadge";
 import { AuthProvider } from "./context/AuthContext";
 
 import "./index.css";
@@ -30,6 +31,8 @@ ReactDOM.createRoot(
 
           <AuthProvider>
             <App />
+
+            <ReleaseBadge />
 
             <ToastContainer
               position="top-right"

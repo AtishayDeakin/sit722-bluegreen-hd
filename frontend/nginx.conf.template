@@ -1,3 +1,12 @@
+# nginx template, rendered at container start by the official nginx image
+# (envsubst on /etc/nginx/templates/*.template). Only variables that exist in
+# the container environment are replaced, so nginx's own $host etc. are kept.
+#
+#   BACKEND_SUFFIX  "" for docker compose, "-blue" or "-green" in Kubernetes,
+#                   so each colour's frontend only talks to its own backends.
+#   APP_COLOR       blue / green / local
+#   APP_VERSION     git commit SHA of the release
+
 server {
     listen 80;
     server_name localhost;
@@ -8,7 +17,7 @@ server {
     client_max_body_size 10M;
 
     location /api/users/ {
-        proxy_pass http://user-service:8000/;
+        proxy_pass http://user-service${BACKEND_SUFFIX}:8000/;
         proxy_http_version 1.1;
 
         proxy_set_header Host $host;
@@ -18,7 +27,7 @@ server {
     }
 
     location /api/students/ {
-        proxy_pass http://student-service:8000/;
+        proxy_pass http://student-service${BACKEND_SUFFIX}:8000/;
         proxy_http_version 1.1;
 
         proxy_set_header Host $host;
@@ -28,7 +37,7 @@ server {
     }
 
     location /api/lecturers/ {
-        proxy_pass http://lecturer-service:8000/;
+        proxy_pass http://lecturer-service${BACKEND_SUFFIX}:8000/;
         proxy_http_version 1.1;
 
         proxy_set_header Host $host;
@@ -38,7 +47,7 @@ server {
     }
 
     location /api/courses/ {
-        proxy_pass http://course-service:8000/;
+        proxy_pass http://course-service${BACKEND_SUFFIX}:8000/;
         proxy_http_version 1.1;
 
         proxy_set_header Host $host;
@@ -48,13 +57,28 @@ server {
     }
 
     location /api/enrollments/ {
-        proxy_pass http://enrollment-service:8000/;
+        proxy_pass http://enrollment-service${BACKEND_SUFFIX}:8000/;
         proxy_http_version 1.1;
 
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Which release is serving this request. Used by the smoke tests, the
+    # k6 load test and the release badge in the UI.
+    location = /release {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        return 200 '{"color":"${APP_COLOR}","version":"${APP_VERSION}"}';
+    }
+
+    # Liveness/readiness probe for Kubernetes.
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok";
     }
 
     location / {
