@@ -22,6 +22,11 @@ const RATE = parseInt(__ENV.RATE || "15", 10);
 const OUT_DIR = __ENV.OUT_DIR || "/out";
 
 export const options = {
+  // Each iteration behaves like a new visitor and opens fresh connections.
+  // Without this, k6 keeps its HTTP keep-alive connections open for the whole
+  // test, and an already-open connection stays pinned to the OLD colour's pods
+  // after the Service selector is switched, so the new colour gets no traffic.
+  noVUConnectionReuse: true,
   scenarios: {
     steady_users: {
       executor: "constant-arrival-rate",

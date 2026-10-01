@@ -313,6 +313,16 @@ that selector in a single API call. This is zero downtime because:
 The k6 test runs throughout and counts `transport_errors` (requests that could
 not connect at all). The release is only promoted if this stays at 0.
 
+One lesson from the first real run: switching the selector only affects **new**
+connections. A client that keeps an HTTP keep-alive connection open stays on
+the old colour's pods. The first k6 version reused its connections for the
+whole test, so after the switch the new colour received no load-test traffic,
+the health gate saw "no data" for the full window and, as designed, refused to
+promote a release it could not verify and rolled back. k6 now opens fresh
+connections for every iteration (`noVUConnectionReuse`), like new visitors
+arriving, and the old colour stays up during observation so long-lived
+connections are never cut off.
+
 ### The health gate
 
 After the switch, `bluegreen.py observe` samples Prometheus every 10 seconds
