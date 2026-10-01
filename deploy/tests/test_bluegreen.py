@@ -232,6 +232,48 @@ class CommandTests(unittest.TestCase):
             self.assertEqual(args[:2], ["-n", "koalatech"])
 
 
+
+class EndpointConfirmationTests(unittest.TestCase):
+    """After a selector change, the controller must check what users really get."""
+
+    def setUp(self):
+        self.real_probe = bg.serving_colour
+
+    def tearDown(self):
+        bg.serving_colour = self.real_probe
+
+    def probe_sequence(self, answers):
+        answers = list(answers)
+        def fake(url, timeout=3.0):
+            return answers.pop(0) if len(answers) > 1 else answers[0]
+        bg.serving_colour = fake
+
+    def test_waits_through_the_propagation_gap(self):
+        self.probe_sequence(["blue", "blue", "green", "green", "green", "green", "green"])
+        took = bg.wait_until_serving("http://x", "green", timeout=10, interval=0)
+        self.assertGreaterEqual(took, 0)
+
+    def test_a_single_correct_answer_is_not_enough(self):
+        self.probe_sequence(["green", "blue"])
+        with self.assertRaises(bg.ControllerError):
+            bg.wait_until_serving("http://x", "green", timeout=0.3, interval=0)
+
+    def test_swap_puts_selector_back_if_users_never_reach_new_colour(self):
+        self.probe_sequence(["blue"])
+        fake = FakeKubectl(live="blue")
+        with self.assertRaises(bg.ControllerError):
+            bg.cmd_swap(bg.Kube(fake), Args(to="green", version="new5678",
+                                            prod_url="http://x", wait_timeout=0.3))
+        self.assertEqual(fake.selector["koalatech-prod"], "blue")
+
+    def test_swap_succeeds_once_users_are_on_new_colour(self):
+        self.probe_sequence(["green"])
+        fake = FakeKubectl(live="blue")
+        bg.cmd_swap(bg.Kube(fake), Args(to="green", version="new5678",
+                                        prod_url="http://x", wait_timeout=5))
+        self.assertEqual(fake.selector["koalatech-prod"], "green")
+
+
 class PromQLTests(unittest.TestCase):
     def test_queries_are_scoped_to_one_colour(self):
         for query in bg.promql_for("green").values():

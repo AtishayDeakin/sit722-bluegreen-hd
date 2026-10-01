@@ -32,6 +32,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -205,6 +206,41 @@ class Kube:
             return None
         value = float(result[0]["value"][1])
         return None if value != value else value  # NaN -> no data
+
+
+# ---------------------------------------------------------------------------
+# Confirming what an endpoint really serves
+#
+# Changing a Service selector is not instant for clients: Kubernetes has to
+# update the endpoints and Docker Desktop's localhost forwarding follows. During
+# that gap new connections can still reach the OLD colour. So after every
+# switch we ask the endpoint itself (/release) until it answers with the new
+# colour several times in a row. Each probe opens a fresh connection.
+# ---------------------------------------------------------------------------
+
+def serving_colour(url: str, timeout: float = 3.0) -> Optional[str]:
+    try:
+        with urllib.request.urlopen(url.rstrip("/") + "/release", timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8")).get("color")
+    except Exception:
+        return None
+
+
+def wait_until_serving(url: str, colour: str, timeout: float = 120,
+                       consecutive: int = 5, interval: float = 0.5) -> float:
+    """Block until `url` serves `colour` `consecutive` times in a row.
+    Returns the seconds it took; raises ControllerError on timeout."""
+    started = time.monotonic()
+    streak = 0
+    while time.monotonic() - started < timeout:
+        if serving_colour(url) == colour:
+            streak += 1
+            if streak >= consecutive:
+                return time.monotonic() - started
+        else:
+            streak = 0
+        time.sleep(interval)
+    raise ControllerError(f"{url} was still not serving {colour} after {timeout:.0f}s.")
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +486,9 @@ def cmd_deploy(kube: Kube, args) -> int:
             raise ControllerError(f"{name} did not become ready within {args.timeout}s.")
 
     kube.point_service(PREVIEW_SERVICE, args.color)
+    if getattr(args, "preview_url", None):
+        took = wait_until_serving(args.preview_url, args.color, timeout=args.wait_timeout)
+        log(f"Preview endpoint confirmed serving {args.color} after {took:.1f}s.")
     fault_note = (
         f" Fault injection ON: {args.fault_rate:.0%} of requests, after {args.fault_delay:g}s."
         if args.fault_rate > 0 else ""
@@ -474,6 +513,17 @@ def cmd_swap(kube: Kube, args) -> int:
     kube.point_service(PROD_SERVICE, args.to)
     elapsed_ms = (time.monotonic() - started) * 1000
 
+    effective = ""
+    if getattr(args, "prod_url", None):
+        try:
+            took = wait_until_serving(args.prod_url, args.to, timeout=args.wait_timeout)
+        except ControllerError:
+            if previous:
+                kube.point_service(PROD_SERVICE, previous)
+            raise ControllerError(
+                f"Production never started serving {args.to}; selector put back to {previous}.")
+        effective = f" Users confirmed on {args.to} after {took:.1f}s."
+
     kube.annotate(PROD_SERVICE, {
         "live-color": args.to,
         "live-version": args.version,
@@ -483,10 +533,10 @@ def cmd_swap(kube: Kube, args) -> int:
         "last-result": "observing",
     })
     log(f"Production traffic switched {previous} -> {args.to} "
-        f"(selector update took {elapsed_ms:.0f} ms).")
+        f"(selector update took {elapsed_ms:.0f} ms).{effective}")
     write_step_summary(
         f"### Traffic switched\nProduction now serves **{args.to}** "
-        f"(was {previous}). Old colour kept running for instant rollback."
+        f"(was {previous}).{effective} Old colour kept running for instant rollback."
     )
     return 0
 
@@ -570,13 +620,21 @@ def cmd_rollback(kube: Kube, args) -> int:
         "last-result": "rolled-back",
     })
     log(f"ROLLED BACK: production traffic returned to {args.to}. Reason: {reason}")
+    restored = ""
+    if getattr(args, "prod_url", None):
+        try:
+            took = wait_until_serving(args.prod_url, args.to, timeout=args.wait_timeout)
+            restored = f" Users were back on {args.to} {took:.1f}s after the rollback started."
+            log(restored.strip())
+        except ControllerError as error:
+            log(f"WARNING: {error}")
 
     diagnostics = kube.run(kube.ns("get", "pods", "-l", f"color={args.from_colour}"), None)
     kube.scale_colour(args.from_colour, 0)
     log(f"Faulty {args.from_colour} release scaled down to 0 replicas.")
     write_step_summary(
         f"## Automatic rollback\nProduction returned to **{args.to}** "
-        f"with no manual action.\n\n**Reason:** {reason}\n\n"
+        f"with no manual action.{restored}\n\n**Reason:** {reason}\n\n"
         f"Faulty **{args.from_colour}** pods at the time of rollback:\n"
         f"```\n{diagnostics.strip()}\n```"
     )
@@ -647,10 +705,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fault-rate", type=float, default=0.0)
     p.add_argument("--fault-delay", type=float, default=0.0)
     p.add_argument("--timeout", type=int, default=300)
+    p.add_argument("--preview-url", default=os.getenv("BG_PREVIEW_URL", "http://localhost:8081"))
+    p.add_argument("--wait-timeout", type=float, default=120)
 
     p = sub.add_parser("swap")
     p.add_argument("--to", required=True, choices=COLOURS)
     p.add_argument("--version", required=True)
+    p.add_argument("--prod-url", default=os.getenv("BG_PROD_URL", "http://localhost:8080"))
+    p.add_argument("--wait-timeout", type=float, default=120)
 
     p = sub.add_parser("observe")
     p.add_argument("--color", required=True, choices=COLOURS)
@@ -666,6 +728,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--from", dest="from_colour", required=True, choices=COLOURS)
     p.add_argument("--to", required=True, choices=COLOURS)
     p.add_argument("--reason", default="")
+    p.add_argument("--prod-url", default=os.getenv("BG_PROD_URL", "http://localhost:8080"))
+    p.add_argument("--wait-timeout", type=float, default=60)
 
     p = sub.add_parser("abort")
     p.add_argument("--color", required=True, choices=COLOURS)

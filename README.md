@@ -323,6 +323,17 @@ connections for every iteration (`noVUConnectionReuse`), like new visitors
 arriving, and the old colour stays up during observation so long-lived
 connections are never cut off.
 
+A second lesson: a selector change is not instant for users either. Kubernetes
+has to update the Service endpoints and Docker Desktop's localhost forwarding
+follows, so for a few seconds new connections can still reach the old colour.
+The first fault-injection run showed this: the smoke tests started before the
+preview endpoint had moved and landed on the healthy blue release. Because the
+smoke tests check *which colour answered*, they refused to pass instead of
+approving the wrong release. The controller now confirms every switch from the
+user's side (preview, production and rollback): it polls `/release` until the
+endpoint answers with the new colour five times in a row, records how long that
+took, and if production never follows a switch it puts the selector back.
+
 ### The health gate
 
 After the switch, `bluegreen.py observe` samples Prometheus every 10 seconds
